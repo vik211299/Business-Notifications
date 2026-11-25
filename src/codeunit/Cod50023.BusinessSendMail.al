@@ -157,6 +157,9 @@ codeunit 83001 BusinessSendMail
                 ReportSelecNotif."E-Mail Body".CreateInStream(Instream, TextEncoding::UTF8);
                 Instream.Read(ContentLine);
 
+                // Replace custom/virtual variables first so blank custom fields don't overwrite resolved values
+                ReplaceCustomVariables(RecRef, ContentLine);
+
                 // Dynamically replace {{Field Name}} and {{Field Caption}} with record values
                 for i := 1 to RecRef.FieldCount do begin
                     FieldRef := RecRef.FieldIndex(i);
@@ -177,6 +180,63 @@ codeunit 83001 BusinessSendMail
                 exit(ContentLine);
             end;
         end;
+    end;
+
+    local procedure ReplaceCustomVariables(RecRef: RecordRef; var ContentLine: Text)
+    var
+        CustLedgerEntry: Record "Cust. Ledger Entry";
+        Customer: Record Customer;
+        CustNoFldRef: FieldRef;
+        CustNo: Code[20];
+        CustomerName: Text;
+        i: Integer;
+    begin
+        OnBeforeReplaceCustomVariables(RecRef, ContentLine);
+
+        if ContentLine.Contains('{{Customer Name}}') or ContentLine.Contains('{{Customer.Name}}') or ContentLine.Contains('{{CustomerName}}') then begin
+            CustNo := '';
+            case RecRef.Number of
+                Database::"Cust. Ledger Entry":
+                    begin
+                        RecRef.SetTable(CustLedgerEntry);
+                        CustNo := CustLedgerEntry."Customer No.";
+                    end;
+                else begin
+                    for i := 1 to RecRef.FieldCount do begin
+                        CustNoFldRef := RecRef.FieldIndex(i);
+                        if UpperCase(CustNoFldRef.Name) in ['CUSTOMER NO.', 'CUSTOMER NO', 'SELL-TO CUSTOMER NO.', 'BILL-TO CUSTOMER NO.'] then begin
+                            CustNo := Format(CustNoFldRef.Value);
+                            if CustNo <> '' then
+                                break;
+                        end;
+                    end;
+                end;
+            end;
+
+            CustomerName := '';
+            if CustNo <> '' then
+                if Customer.Get(CustNo) then
+                    CustomerName := Customer.Name;
+
+            if ContentLine.Contains('{{Customer Name}}') then
+                ContentLine := ContentLine.Replace('{{Customer Name}}', CustomerName);
+            if ContentLine.Contains('{{Customer.Name}}') then
+                ContentLine := ContentLine.Replace('{{Customer.Name}}', CustomerName);
+            if ContentLine.Contains('{{CustomerName}}') then
+                ContentLine := ContentLine.Replace('{{CustomerName}}', CustomerName);
+        end;
+
+        OnAfterReplaceCustomVariables(RecRef, ContentLine);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnBeforeReplaceCustomVariables(RecRef: RecordRef; var ContentLine: Text)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterReplaceCustomVariables(RecRef: RecordRef; var ContentLine: Text)
+    begin
     end;
 
 }
